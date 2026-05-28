@@ -365,7 +365,11 @@ tbody td{padding:12px 16px;font-size:13px}
     <div class="fp active" id="mp1">
       <div class="fr"><div class="fg"><label>First Name *</label><input type="text" id="pFN"/></div><div class="fg"><label>Last Name *</label><input type="text" id="pLN"/></div></div>
       <div class="fr fr3"><div class="fg"><label>Date of Birth</label><input type="date" id="pDOB"/></div><div class="fg"><label>Gender</label><select id="pG"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></div><div class="fg"><label>Blood Group</label><select id="pBG"><option value="">&#x2014;</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div></div>
-      <div class="fr"><div class="fg"><label>Phone *</label><input type="tel" id="pPH"/></div><div class="fg"><label>Email</label><input type="email" id="pEM"/></div></div>
+      <div class="fr"><div class="fg">
+          <label>Phone *</label>
+          <input type="tel" id="pPH" oninput="checkDupPhone(this.value)" placeholder="+91 98765 43210"/>
+          <div id="dup-phone-warn" style="display:none;font-size:11px;color:#E24B4A;margin-top:4px;font-weight:500"></div>
+        </div><div class="fg"><label>Email</label><input type="email" id="pEM"/></div></div>
       <div class="fr fr1"><div class="fg"><label>Address</label><textarea id="pAD"></textarea></div></div>
       <div class="fr"><div class="fg"><label>Occupation</label><input type="text" id="pOC"/></div><div class="fg"><label>Insurance</label><input type="text" id="pIN"/></div></div>
     </div>
@@ -665,7 +669,7 @@ function rDash(){
   document.getElementById('s-ta').textContent=_appts.filter(a=>a.date===today&&a.status!=='cancelled').length;
   document.getElementById('s-tr').textContent=_trts.length;
   document.getElementById('s-nm').textContent=_pts.filter(p=>(p.createdAt||'').startsWith(thisM)).length;
-  document.getElementById('d-recent').innerHTML=_pts.slice(0,5).map(p=>`<div class="ac2" onclick="openPD('${p.id}')"><div class="av" style="width:40px;height:40px;font-size:15px">${ini(p)}</div><div style="flex:1"><div style="font-weight:600;font-size:14px">${p.firstName} ${p.lastName}</div><div style="font-size:12px;color:var(--txm)">${p.phone||'&#x2014;'}</div></div><span class="badge ${p.status==='New'?'bn':'ba'}">${p.status||'Active'}</span></div>`).join('')||'<div class="nd">No patients yet.</div>';
+  document.getElementById('d-recent').innerHTML=_pts.slice(0,5).map(p=>`<div class="ac2" onclick="openPD('${p.id}')"><div class="av" style="width:40px;height:40px;font-size:15px">${ini(p)}</div><div style="flex:1"><div style="font-weight:600;font-size:14px">${p.firstName} ${p.lastName}</div><div style="font-size:12px;color:var(--txm)">${p.phone||'&#x2014;'}</div></div></div>`).join('')||'<div class="nd">No patients yet.</div>';
   const up=_appts.filter(a=>a.date>=today&&a.status!=='cancelled').slice(0,4);
   document.getElementById('d-appts').innerHTML=up.map(a=>{const d=new Date(a.date+'T00:00:00');return`<div class="ac2" onclick="showView('appointments')"><div class="atb"><div class="ad2">${d.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div><div class="at">${a.slotLabel}</div></div><div><div style="font-weight:600;font-size:14px">${a.name}</div><div style="font-size:12px;color:var(--txm)">${a.treatment}${a.doc?' &#x00B7; '+a.doc:''}</div></div></div>`;}).join('')||'<div class="nd">No upcoming appointments.</div>';
 }
@@ -817,10 +821,50 @@ function editPt(){
   swMT(document.querySelector('#pmModal .ft'),'mp1');openM('pmModal');
 }
 
+function checkDupPhone(val){
+  var warn=document.getElementById('dup-phone-warn');
+  var phEl=document.getElementById('pPH');
+  var eid=document.getElementById('pid').value;
+  if(!val||val.length<6||eid){
+    if(warn){warn.style.display='none';warn.textContent='';}
+    if(phEl){phEl.style.borderColor='';phEl.style.background='';}
+    return;
+  }
+  var clean=val.replace(/\D/g,'').slice(-10);
+  if(clean.length<10) return;
+  var existing=_pts.find(function(p){ return p.phone && p.phone.replace(/\D/g,'').slice(-10)===clean; });
+  if(existing){
+    if(warn){
+      warn.style.display='block';
+      warn.textContent='⚠ This mobile is already registered to: '+existing.firstName+' '+existing.lastName+' ('+existing.id+')';
+    }
+    if(phEl){phEl.style.borderColor='#E24B4A';phEl.style.background='#fff5f5';}
+  } else {
+    if(warn){warn.style.display='none';warn.textContent='';}
+    if(phEl){phEl.style.borderColor='#1D9E75';phEl.style.background='#f0fdf8';}
+  }
+}
+
 async function savePt(){
-  const fn=document.getElementById('pFN').value.trim();const ln=document.getElementById('pLN').value.trim();const ph=document.getElementById('pPH').value.trim();
+  var fn=document.getElementById('pFN').value.trim();
+  var ln=document.getElementById('pLN').value.trim();
+  var ph=document.getElementById('pPH').value.trim();
   if(!fn||!ln||!ph){toast('Please fill required fields (Name, Phone).',true);return;}
-  const eid=document.getElementById('pid').value;
+  var eid=document.getElementById('pid').value;
+  // Duplicate mobile check (only for new patients, not edits)
+  if(!eid){
+    var phClean=ph.replace(/\D/g,'').slice(-10);
+    var existing=_pts.find(function(p){ return p.phone && p.phone.replace(/\D/g,'').slice(-10)===phClean; });
+    if(existing){
+      toast('A patient with this mobile number already exists: '+existing.firstName+' '+existing.lastName+' ('+existing.id+')',true);
+      // Highlight the phone field
+      var phEl=document.getElementById('pPH');
+      phEl.style.borderColor='#E24B4A';
+      phEl.style.background='#fff5f5';
+      setTimeout(function(){ phEl.style.borderColor=''; phEl.style.background=''; },3000);
+      return;
+    }
+  }
   const cond=[...document.querySelectorAll('.mcc:checked')].map(c=>c.value);
   const data={firstName:fn,lastName:ln,phone:ph,dob:document.getElementById('pDOB').value,gender:document.getElementById('pG').value,bloodGroup:document.getElementById('pBG').value,email:document.getElementById('pEM').value,address:document.getElementById('pAD').value,occupation:document.getElementById('pOC').value,insurance:document.getElementById('pIN').value,allergies:document.getElementById('pAL').value,medications:document.getElementById('pMD').value,conditions:cond,smoking:document.getElementById('pSM').value,alcohol:document.getElementById('pAC2').value,medicalNotes:document.getElementById('pMN').value,lastVisit:document.getElementById('pLV').value,prevDentist:document.getElementById('pPD').value,chiefComplaint:document.getElementById('pCC').value,anxiety:document.getElementById('pDA').value,dentalNotes:document.getElementById('pDN').value,notes:eid?(_pts.find(p=>p.id===eid)?.notes||''):'',status:eid?(_pts.find(p=>p.id===eid)?.status||'New'):'New'};
   try{
@@ -1232,41 +1276,125 @@ function clearApptFilters(){
 
 function gotoTodayAppts(){
   showView('appointments');
-  const today=new Date().toISOString().split('T')[0];
-  setTimeout(()=>{
-    const df=document.getElementById('al-date-filter');if(df)df.value=today;
+  var today=new Date().toISOString().split('T')[0];
+  setTimeout(function(){
+    var df=document.getElementById('al-date-filter');if(df)df.value=today;
+    var sf=document.getElementById('al-status-filter');if(sf)sf.value='';
+    var ddf=document.getElementById('al-doc-filter');if(ddf)ddf.value='';
     rAL();
   },300);
 }
 
+function slotToMinutes(slotKey){
+  // slot key format: "9_30" = 9h30m = 570 mins
+  if(!slotKey) return 0;
+  var parts=slotKey.split('_');
+  return parseInt(parts[0]||0)*60+parseInt(parts[1]||0);
+}
+
+function nowMinutes(){
+  var n=new Date(); return n.getHours()*60+n.getMinutes();
+}
+
 function rAL(){
-  const today=new Date().toISOString().split('T')[0];
-  const el=document.getElementById('al');if(!el)return;
-  const dateF=document.getElementById('al-date-filter')?.value||'';
-  const docF=document.getElementById('al-doc-filter')?.value||'';
-  const statF=document.getElementById('al-status-filter')?.value||'';
-  let filtered=_appts.sort((a,b)=>a.date.localeCompare(b.date)||a.slot.localeCompare(b.slot));
-  if(dateF)filtered=filtered.filter(a=>a.date===dateF);
-  if(docF)filtered=filtered.filter(a=>a.doc===docF);
-  if(statF==='upcoming')filtered=filtered.filter(a=>a.date>=today&&a.status!=='cancelled');
-  else if(statF==='past')filtered=filtered.filter(a=>a.date<today&&a.status!=='cancelled');
-  else if(statF==='cancelled')filtered=filtered.filter(a=>a.status==='cancelled');
-  const countEl=document.getElementById('al-count');
-  if(countEl)countEl.textContent=filtered.length+' appointment'+(filtered.length!==1?'s':'')+' shown'+(dateF?' for '+fd(dateF):'')+(docF?' · '+docF:'');
-  if(!filtered.length){el.innerHTML='<div class="nd">No appointments match the selected filters.</div>';return;}
-  el.innerHTML=filtered.map(a=>{
-    const d=new Date(a.date+'T00:00:00');const ds=d.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
-    const isCan=a.status==='cancelled';const isPast=a.date<today;
-    return`<div class="ac2" style="${isCan?'opacity:.55':''}">
-      <div class="atb" style="${isCan?'background:var(--g400)':isPast?'background:var(--t600)':''}"><div class="ad2">${ds}</div><div class="at">${a.slotLabel}</div></div>
-      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">${a.name}</div><div style="font-size:12px;color:var(--txm);margin-top:1px">${a.phone}</div><div style="font-size:12px;color:var(--txm);margin-top:1px">${a.treatment}${a.teeth&&a.teeth.length?' &#x00B7; Tooth '+a.teeth.join(', '):''}</div>${a.doc?`<div style="font-size:11px;font-weight:600;color:var(--t800);margin-top:3px;background:var(--t50);display:inline-block;padding:2px 8px;border-radius:20px">${a.doc}</div>`:''} ${a.notes?`<div style="font-size:11px;color:var(--txm);font-style:italic;margin-top:2px">${a.notes}</div>`:''}</div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-        <span class="badge ${isCan?'bc':isPast?'bpa':'bu'}">${isCan?'Cancelled':isPast?'Past':'Upcoming'}</span>
-        ${!isCan&&!isPast?`<button class="btn bd2" style="padding:4px 10px;font-size:11px" onclick="cancelA('${a.id}')">Cancel</button>`:''}
-        ${a.pid?`<button class="btn bg" style="padding:4px 10px;font-size:11px" onclick="openPD('${a.pid}')">View Patient</button>`:''}
-      </div>
-    </div>`;
-  }).join('');
+  var today=new Date().toISOString().split('T')[0];
+  var nowMins=nowMinutes();
+  var el=document.getElementById('al');if(!el)return;
+  var dateF=document.getElementById('al-date-filter')?.value||'';
+  var docF=document.getElementById('al-doc-filter')?.value||'';
+  var statF=document.getElementById('al-status-filter')?.value||'';
+
+  // Sort: by date asc, then by slot time asc
+  var allSorted=_appts.slice().sort(function(a,b){
+    var dc=a.date.localeCompare(b.date);
+    if(dc!==0) return dc;
+    return slotToMinutes(a.slot)-slotToMinutes(b.slot);
+  });
+
+  var filtered=allSorted;
+  if(dateF) filtered=filtered.filter(function(a){return a.date===dateF;});
+  if(docF)  filtered=filtered.filter(function(a){return a.doc===docF;});
+  if(statF==='upcoming') filtered=filtered.filter(function(a){return a.date>=today&&a.status!=='cancelled';});
+  else if(statF==='past') filtered=filtered.filter(function(a){return a.date<today&&a.status!=='cancelled';});
+  else if(statF==='cancelled') filtered=filtered.filter(function(a){return a.status==='cancelled';});
+
+  var countEl=document.getElementById('al-count');
+  var isToday=dateF===today;
+  if(countEl){
+    var upcoming=filtered.filter(function(a){return a.status!=='cancelled'&&(a.date>today||(a.date===today&&slotToMinutes(a.slot)>=nowMins));}).length;
+    var past=filtered.filter(function(a){return a.status!=='cancelled'&&(a.date<today||(a.date===today&&slotToMinutes(a.slot)<nowMins));}).length;
+    var msg=filtered.length+' appointment'+(filtered.length!==1?'s':'')+' shown';
+    if(dateF) msg+=' for '+fd(dateF);
+    if(docF)  msg+=' · '+docF;
+    if(isToday&&!statF) msg+=' · '+upcoming+' upcoming, '+past+' past';
+    countEl.textContent=msg;
+  }
+
+  if(!filtered.length){
+    el.innerHTML='<div class="nd">No appointments match the selected filters.</div>';
+    return;
+  }
+
+  // For today view - show divider between past and upcoming
+  var html='';
+  var shownUpcomingHeader=false;
+  var shownPastHeader=false;
+
+  filtered.forEach(function(a){
+    var d=new Date(a.date+'T00:00:00');
+    var ds=d.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+    var isCan=a.status==='cancelled';
+    var isPastDate=a.date<today;
+    var isTodayPastSlot=a.date===today&&slotToMinutes(a.slot)<nowMins&&!isCan;
+    var isTodayUpcoming=a.date===today&&slotToMinutes(a.slot)>=nowMins&&!isCan;
+    var isFuture=a.date>today&&!isCan;
+    var isUpcoming=isTodayUpcoming||isFuture;
+    var isPast=isPastDate||isTodayPastSlot;
+
+    // Section headers for today view
+    if(isToday&&!statF){
+      if(isUpcoming&&!shownUpcomingHeader){
+        html+='<div style="font-size:11px;font-weight:700;color:var(--t800);text-transform:uppercase;letter-spacing:.8px;padding:8px 4px 6px;border-bottom:2px solid var(--t400);margin-bottom:10px">&#x23F0; Upcoming today</div>';
+        shownUpcomingHeader=true;
+      }
+      if(isPast&&!shownPastHeader&&shownUpcomingHeader){
+        html+='<div style="font-size:11px;font-weight:700;color:var(--g400);text-transform:uppercase;letter-spacing:.8px;padding:14px 4px 6px;border-bottom:1px solid var(--g100);margin-bottom:10px;margin-top:4px">&#x2713; Completed today</div>';
+        shownPastHeader=true;
+      }
+    }
+
+    var timeBadgeBg=isCan?'var(--g400)':isPast?'var(--t600)':'#085041';
+    var cardOpacity=isCan?'opacity:.5;':'';
+    // Highlight upcoming today slots
+    var cardBorder=isTodayUpcoming?'border:1.5px solid var(--t400);':'';
+
+    html+='<div class="ac2" style="'+cardOpacity+cardBorder+'">';
+    html+='<div class="atb" style="background:'+timeBadgeBg+'">';
+    html+='<div class="ad2">'+ds+'</div>';
+    html+='<div class="at">'+a.slotLabel+'</div>';
+    if(isTodayUpcoming){
+      var minsLeft=slotToMinutes(a.slot)-nowMins;
+      var timeStr=minsLeft<=0?'Now':(minsLeft<60?minsLeft+'m away':Math.floor(minsLeft/60)+'h '+( minsLeft%60?minsLeft%60+'m':'')+ ' away');
+      html+='<div style="font-size:9px;color:#9FE1CB;margin-top:2px;font-weight:600">'+timeStr+'</div>';
+    }
+    html+='</div>';
+    html+='<div style="flex:1;min-width:0">';
+    html+='<div style="font-weight:600;font-size:14px">'+a.name+'</div>';
+    html+='<div style="font-size:12px;color:var(--txm);margin-top:1px">'+a.phone+'</div>';
+    html+='<div style="font-size:12px;color:var(--txm);margin-top:1px">'+a.treatment+(a.teeth&&a.teeth.length?' · Tooth '+a.teeth.join(', '):'')+'</div>';
+    if(a.doc) html+='<div style="font-size:11px;font-weight:600;color:var(--t800);margin-top:3px;background:var(--t50);display:inline-block;padding:2px 8px;border-radius:20px">'+a.doc+'</div>';
+    if(a.notes) html+='<div style="font-size:11px;color:var(--txm);font-style:italic;margin-top:2px">'+a.notes+'</div>';
+    html+='</div>';
+    html+='<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">';
+    var badgeCls=isCan?'bc':isPast?'bpa':'bu';
+    var badgeTxt=isCan?'Cancelled':isPast?'Past':'Upcoming';
+    html+='<span class="badge '+badgeCls+'">'+badgeTxt+'</span>';
+    if(!isCan&&!isPast) html+='<button class="btn bd2" style="padding:4px 10px;font-size:11px" onclick="cancelA(&quot;'+a.id+'&quot;)">Cancel</button>';
+    if(a.pid) html+='<button class="btn bg" style="padding:4px 10px;font-size:11px" onclick="openPD(&quot;'+a.pid+'&quot;)">View Patient</button>';
+    html+='</div></div>';
+  });
+
+  el.innerHTML=html;
 }
 
 async function cancelA(id){
