@@ -1469,9 +1469,16 @@ function renderSched(){
         slotDiv.className='sched-slot '+(isPast?'past-booked':'booked');
         var pt=_pts.find(function(p){return p.id===appt.pid;});
         var nm=pt?pt.firstName+' '+pt.lastName:appt.name;
-        slotDiv.innerHTML='<div class="sched-slot-time">'+fmtSlotLabel(sl.h,sl.m)+'</div><div class="sched-slot-name">'+nm+'</div><div class="sched-slot-tx">'+appt.treatment+'</div>';
+        var btnStyle='font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.2);color:#fff;cursor:pointer;font-family:inherit;white-space:nowrap';
+        slotDiv.innerHTML='<div class="sched-slot-time">'+fmtSlotLabel(sl.h,sl.m)+'</div>'
+          +'<div class="sched-slot-name">'+nm+'</div>'
+          +'<div class="sched-slot-tx">'+appt.treatment+'</div>'
+          +'<div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">'
+            +(appt.pid?'<button onclick="event.stopPropagation();openPD(&quot;'+appt.pid+'&quot;)" style="'+btnStyle+'">View<\/button>':'')
+            +'<button onclick="event.stopPropagation();openRescheduleFromSched(&quot;'+appt.id+'&quot;,&quot;'+(appt.pid||'')+'&quot;)" style="'+btnStyle+'">Reschedule<\/button>'
+          +'<\/div>';
+        slotDiv.style.cursor='default';
         if(isNow){var dot=document.createElement('div');dot.className='sched-slot-now';slotDiv.appendChild(dot);}
-        slotDiv.onclick=function(){if(appt.pid)openPD(appt.pid);else toast(nm+' · '+appt.treatment);};
         slotDiv.addEventListener('mouseenter',function(e){
           var tip=document.getElementById('sched-tip');
           var al=pt&&pt.allergies?'<br>⚠ '+pt.allergies:'';
@@ -1657,6 +1664,74 @@ function renderRxTab(pid){
       +'</div></div>';
   }).join('');
 }
+
+// ══ CANCEL APPOINTMENT ══
+async function cancelA(id){
+  var a=_appts.find(function(x){return x.id===id;});
+  if(!a||a.status==='cancelled')return;
+  showConfirm('Cancel Appointment',
+    'Cancel appointment for <strong>'+a.name+'</strong> at <strong>'+a.slotLabel+'</strong> on <strong>'+fd(a.date)+'</strong>?',
+    async function(){
+      try{await sb('appointments','PATCH',{status:'cancelled'},'?id=eq.'+id);
+        toast('Appointment cancelled.');await loadAll();rAL();renderSlots();rDash();updBadge();if(PID)rDAppts(PID);}
+      catch(e){toast('Error.',true);}
+    });
+}
+
+// ══ APPOINTMENT LIST ══
+function slotToMins(sk){if(!sk)return 0;var p=sk.split('_');return parseInt(p[0]||0)*60+parseInt(p[1]||0);}
+function nowMins(){var n=new Date();return n.getHours()*60+n.getMinutes();}
+function rAL(){
+  var today=new Date().toISOString().split('T')[0];
+  var nm=nowMins();
+  var el=document.getElementById('al');if(!el)return;
+  var dateF=document.getElementById('al-date-filter')?document.getElementById('al-date-filter').value||'':'';
+  var docF=document.getElementById('al-doc-filter')?document.getElementById('al-doc-filter').value||'':'';
+  var statF=document.getElementById('al-status-filter')?document.getElementById('al-status-filter').value||'':'';
+  var allSorted=_appts.slice().sort(function(a,b){var dc=a.date.localeCompare(b.date);if(dc!==0)return dc;return slotToMins(a.slot)-slotToMins(b.slot);});
+  var filtered=allSorted;
+  if(dateF)filtered=filtered.filter(function(a){return a.date===dateF;});
+  if(docF) filtered=filtered.filter(function(a){return a.doc===docF;});
+  if(statF==='upcoming')filtered=filtered.filter(function(a){return a.date>=today&&a.status!=='cancelled';});
+  else if(statF==='past')filtered=filtered.filter(function(a){return a.date<today&&a.status!=='cancelled';});
+  else if(statF==='cancelled')filtered=filtered.filter(function(a){return a.status==='cancelled';});
+  var countEl=document.getElementById('al-count');
+  if(countEl){
+    var upc=filtered.filter(function(a){return a.status!=='cancelled'&&(a.date>today||(a.date===today&&slotToMins(a.slot)>=nm));}).length;
+    var pst=filtered.filter(function(a){return a.status!=='cancelled'&&(a.date<today||(a.date===today&&slotToMins(a.slot)<nm));}).length;
+    var msg=filtered.length+' appointment'+(filtered.length!==1?'s':'')+' shown';
+    if(dateF)msg+=' for '+fd(dateF);if(docF)msg+=' · '+docF;
+    countEl.textContent=msg;
+  }
+  if(!filtered.length){el.innerHTML='<div class="nd">No appointments match.</div>';return;}
+  var html='';var shownUH=false,shownPH=false;
+  filtered.forEach(function(a){
+    var d=new Date(a.date+'T00:00:00');var ds=d.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+    var isCan=a.status==='cancelled';var isPastDate=a.date<today;
+    var isTodayPast=a.date===today&&slotToMins(a.slot)<nm&&!isCan;
+    var isTodayUp=a.date===today&&slotToMins(a.slot)>=nm&&!isCan;
+    var isFuture=a.date>today&&!isCan;
+    var isUp=isTodayUp||isFuture;var isPast=isPastDate||isTodayPast;
+    var tbBg=isCan?'var(--g400)':isPast?'var(--t600)':'#085041';
+    html+='<div class="ac2" style="'+(isCan?'opacity:.55;':'')+(isTodayUp?'border:1.5px solid var(--t400);':'')+'">';
+    html+='<div class="atb" style="background:'+tbBg+'"><div class="ad2">'+ds+'</div><div class="at">'+a.slotLabel+'</div>';
+    if(isTodayUp){var ml=slotToMins(a.slot)-nm;var ts=ml<=0?'Now':(ml<60?ml+'m away':Math.floor(ml/60)+'h '+(ml%60?ml%60+'m':'')+' away');html+='<div style="font-size:9px;color:#9FE1CB;margin-top:2px;font-weight:600">'+ts+'</div>';}
+    html+='</div>';
+    html+='<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+a.name+'</div>';
+    html+='<div style="font-size:12px;color:var(--txm)">'+a.phone+'</div>';
+    html+='<div style="font-size:12px;color:var(--txm)">'+a.treatment+(a.teeth&&a.teeth.length?' · Tooth '+a.teeth.join(', '):'')+'</div>';
+    if(a.doc)html+='<div style="font-size:11px;font-weight:600;color:var(--t800);margin-top:3px;background:var(--t50);display:inline-block;padding:2px 8px;border-radius:20px">'+a.doc+'</div>';
+    html+='</div>';
+    html+='<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">';
+    var bc=isCan?'bc':isPast?'bpa':'bu';var bt=isCan?'Cancelled':isPast?'Past':'Upcoming';
+    html+='<span class="badge '+bc+'">'+bt+'</span>';
+    if(!isCan&&!isPast)html+='<button class="btn bd2" style="padding:4px 10px;font-size:11px" onclick="cancelA(&quot;'+a.id+'&quot;)">Cancel</button>';
+    if(a.pid)html+='<button class="btn bg" style="padding:4px 10px;font-size:11px" onclick="openPD(&quot;'+a.pid+'&quot;)">View Patient</button>';
+    html+='</div></div>';
+  });
+  el.innerHTML=html;
+}
+
 
 // INIT
 (async function(){
